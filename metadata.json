@@ -1,0 +1,6 @@
+{
+  "name": "Workshop Pro",
+  "description": "An automotive manual application with an integrated Gemini AI Chatbot, Thinking Mode, and TTS features.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
