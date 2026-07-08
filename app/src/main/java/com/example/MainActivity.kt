@@ -18,6 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -46,6 +47,20 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.theme.MyApplicationTheme
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.launch
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+
+object GlobalState {
+    val savedManuals = androidx.compose.runtime.mutableStateListOf(
+        SavedManual("Prius High Voltage System", listOf("Wiring", "Engines"), true),
+        SavedManual("Adrulee Module Guide", listOf("Adrulee", "Accessories"), false)
+    )
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -292,6 +307,15 @@ fun VINDecoderScreen() {
     var isDecoding by remember { mutableStateOf(false) }
     var decodedInfo by remember { mutableStateOf<String?>(null) }
     var showUpgrades by remember { mutableStateOf(false) }
+    var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) {
+            capturedImage = bitmap
+            isDecoding = true
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -313,18 +337,35 @@ fun VINDecoderScreen() {
                 .height(200.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { isDecoding = true },
+                .clickable { 
+                    try {
+                        cameraLauncher.launch()
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(context, "No camera app available", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Filled.PhotoCamera,
-                    contentDescription = "Upload Photo",
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
+            if (capturedImage != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = capturedImage!!.asImageBitmap(),
+                    contentDescription = "Captured Image",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
                 )
-                Spacer(Modifier.height(8.dp))
-                Text("Tap to upload VIN Plate Photo", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (isDecoding) {
+                CircularProgressIndicator()
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Filled.PhotoCamera,
+                        contentDescription = "Upload Photo",
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap to capture VIN Plate Photo", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         
@@ -332,16 +373,27 @@ fun VINDecoderScreen() {
         
         Button(
             onClick = {
-                decodedInfo = "Vehicle: 1999 Nissan Skyline GT-R (R34)\nEngine: RB26DETT\nChassis: BNR34-123456\nColor: Midnight Purple II"
-                showUpgrades = true
-                isDecoding = false
+                try {
+                    cameraLauncher.launch()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "No camera app available", android.widget.Toast.LENGTH_SHORT).show()
+                }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+            Icon(Icons.Filled.CameraAlt, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("Extract Info with AI", style = MaterialTheme.typography.titleMedium)
+            Text("Capture Image with AI", style = MaterialTheme.typography.titleMedium)
+        }
+        
+        LaunchedEffect(isDecoding) {
+            if (isDecoding) {
+                delay(2000)
+                decodedInfo = "Vehicle: 1999 Nissan Skyline GT-R (R34)\nEngine: RB26DETT\nChassis: BNR34-123456\nColor: Midnight Purple II"
+                showUpgrades = true
+                isDecoding = false
+            }
         }
         
         if (decodedInfo != null) {
@@ -679,9 +731,53 @@ fun AIChatContent(viewModel: AIChatViewModel = androidx.lifecycle.viewmodel.comp
 }
 
 
+data class SavedManual(val title: String, val tags: List<String>, val isEnhanced: Boolean = false)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(navController: NavHostController? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isScanning by remember { mutableStateOf(false) }
+    var scanResult by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    
+    val savedManuals = GlobalState.savedManuals
+    
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            isScanning = true
+            scanResult = null
+            scope.launch {
+                delay(2500)
+                isScanning = false
+                scanResult = "AI Scan Complete: Cleaned up degraded text, colorized wiring diagrams, and indexed 12 pages."
+            }
+        }
+    }
+    
+    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_SUBJECT, "Manual Export")
+        putExtra(android.content.Intent.EXTRA_TEXT, "Exported manual content here. (Integration point for files)")
+    }
+    val shareLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+    
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Manual Library") },
+                actions = {
+                    IconButton(onClick = { fileLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Filled.FileUpload, contentDescription = "Import Manual")
+                    }
+                    IconButton(onClick = { 
+                        shareLauncher.launch(android.content.Intent.createChooser(shareIntent, "Export via...")) 
+                    }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Export via Bluetooth/WiFi/USB")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { navController?.navigate(Screen.Scanner.route) },
@@ -691,13 +787,120 @@ fun LibraryScreen(navController: NavHostController? = null) {
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState())) {
             Text("Library & Tags", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState())
+            ) {
                 FilterChip(selected = true, onClick = {}, label = { Text("All") })
                 FilterChip(selected = false, onClick = {}, label = { Text("Engines") })
                 FilterChip(selected = false, onClick = {}, label = { Text("Wiring") })
+                FilterChip(selected = false, onClick = {}, label = { Text("Car Stereo") })
+                FilterChip(selected = false, onClick = {}, label = { Text("Aftermarket Fridges") })
+                FilterChip(selected = false, onClick = {}, label = { Text("Accessories") })
+                FilterChip(selected = false, onClick = {}, label = { Text("Adrulee") })
+            }
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Icon(Icons.Filled.UploadFile, contentDescription = "Import Manual")
+                Spacer(Modifier.width(8.dp))
+                Text("Import Manual (PDF, Docs, Images)", style = MaterialTheme.typography.titleMedium)
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = { shareLauncher.launch(android.content.Intent.createChooser(shareIntent, "Export via...")) },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = "Export Manuals")
+                Spacer(Modifier.width(8.dp))
+                Text("Export Manuals (Bluetooth, WiFi, USB)", style = MaterialTheme.typography.titleMedium)
+            }
+            
+            Spacer(Modifier.height(24.dp))
+            if (isScanning) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Spacer(Modifier.width(16.dp))
+                        Text("AI is scanning, cleaning text, and colorizing wiring diagrams...", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+            } else if (scanResult != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Result", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Spacer(Modifier.width(8.dp))
+                            Text(scanResult!!, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Text("Indexed Contents & Enhancements:", style = MaterialTheme.typography.titleSmall)
+                        Text("1. Wiring Diagram (B&W -> Color Enhanced)\n2. Engine Specs (Illegible text restored)\n3. Troubleshooting (3 Interactive Photos extracted)", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(Color.Gray).clickable {
+                                android.widget.Toast.makeText(context, "Opening interactive photo view...", android.widget.Toast.LENGTH_SHORT).show()
+                            }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.Image, contentDescription = "Extracted Photo", tint = Color.White)
+                            }
+                            Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(Color.Gray).clickable {
+                                android.widget.Toast.makeText(context, "Opening interactive photo view...", android.widget.Toast.LENGTH_SHORT).show()
+                            }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.Image, contentDescription = "Extracted Photo", tint = Color.White)
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = { 
+                            scanResult = null
+                            savedManuals.add(0, SavedManual("Newly Imported Manual", listOf("Adrulee", "AI Enhanced"), true))
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Save & View Library")
+                        }
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(24.dp))
+            Text("Saved Manuals", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            savedManuals.forEach { manual ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                        android.widget.Toast.makeText(context, "Opening ${manual.title}...", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Book, contentDescription = "Manual", tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(manual.title, style = MaterialTheme.typography.titleMedium)
+                            if (manual.isEnhanced) {
+                                Spacer(Modifier.weight(1f))
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = "Enhanced", tint = Color.Magenta, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            manual.tags.forEach { tag ->
+                                AssistChip(onClick = {}, label = { Text(tag, style = MaterialTheme.typography.bodySmall) })
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -744,6 +947,22 @@ fun ScannerScreen(onBack: () -> Unit) {
     var isScanning by remember { mutableStateOf(false) }
     var scanComplete by remember { mutableStateOf(false) }
     var scannedPages by remember { mutableStateOf(0) }
+    var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) {
+            capturedImage = bitmap
+            isScanning = true
+            scanComplete = false
+            scope.launch {
+                delay(1500)
+                scannedPages++
+                isScanning = false
+            }
+        }
+    }
     
     Scaffold(
         topBar = {
@@ -771,7 +990,14 @@ fun ScannerScreen(onBack: () -> Unit) {
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                if (isScanning) {
+                if (capturedImage != null && !isScanning && !scanComplete) {
+                     androidx.compose.foundation.Image(
+                        bitmap = capturedImage!!.asImageBitmap(),
+                        contentDescription = "Captured Image",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                } else if (isScanning) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Text("Scanning page...", color = Color.White, modifier = Modifier.padding(top = 64.dp))
                 } else if (scanComplete) {
@@ -795,8 +1021,11 @@ fun ScannerScreen(onBack: () -> Unit) {
             ) {
                 Button(
                     onClick = {
-                        isScanning = true
-                        scanComplete = false
+                        try {
+                            cameraLauncher.launch()
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "No camera app available", android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }
                 ) {
                     Icon(Icons.Filled.CameraAlt, "Capture")
@@ -808,6 +1037,7 @@ fun ScannerScreen(onBack: () -> Unit) {
                     Button(
                         onClick = {
                             scanComplete = true
+                            GlobalState.savedManuals.add(0, SavedManual("Newly Digitized Manual", listOf("Scans", "AI Processed"), true))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                     ) {
@@ -817,14 +1047,6 @@ fun ScannerScreen(onBack: () -> Unit) {
                     }
                 }
             }
-        }
-    }
-    
-    LaunchedEffect(isScanning) {
-        if (isScanning) {
-            kotlinx.coroutines.delay(1500)
-            scannedPages++
-            isScanning = false
         }
     }
 }
