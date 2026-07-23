@@ -1,0 +1,3 @@
+“Scan all GitHub Actions workflows, Gradle files, Capacitor configs, and build scripts in this repository.
+Identify any deprecated Node versions (Node20), outdated GitHub Actions, broken Gradle syntax, mismatched Android SDK versions, Capacitor Android issues, or anything that will fail when GitHub migrates to Node24.
+List every problem, explain why it breaks, and give the
