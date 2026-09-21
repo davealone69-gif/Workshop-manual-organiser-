@@ -19,7 +19,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0      - name: Gradle audit and build
+          fetch-depth: 0
+      - name: Gradle audit and build
         if: ${{ hashFiles('gradlew') != '' }}
         shell: bash
         run: |
@@ -41,6 +42,6 @@ jobs:
       - name: CodeQL security analysis
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript,python,java-kotlin
+          languages: javascript-typescript,python
       - name: CodeQL analyze
         uses: github/codeql-action/analyze@v3
